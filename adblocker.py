@@ -1,49 +1,143 @@
+import os
+import urllib.request
 from PyQt6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 
 
+OISD_URL = "https://small.oisd.nl"
+EASYPRIVACY_URL = "https://easylist.to/easylist/easyprivacy.txt"
+OISD_FILE = "filters/oisd_small.txt"
+EASYPRIVACY_FILE = "filters/easyprivacy.txt"
+
+
 class AdBlocker(QWebEngineUrlRequestInterceptor):
+
     def __init__(self):
         super().__init__()
 
-        # This will store all blocked domains
         self.rules = set()
 
-        # Loads the ad blocking list
-        self.load_peter_lowe()
+        os.makedirs("filters", exist_ok=True)
 
-        print(f"Loaded {len(self.rules)} blocked domains.")
+        self.download_filters()
+        self.load_filters()
+        
 
-    def load_peter_lowe(self):
+    def download_filter(self, url, filename):
+
         try:
-            with open("filters/peter_lowe.txt", "r", encoding="utf8") as file:
+            print(f"Updating {filename}...")
+
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0"
+            }
+        )
+
+            with urllib.request.urlopen(request) as response:
+                 data = response.read()
+
+            with open(filename, "wb") as file:
+                 file.write(data)
+
+            print(f"{filename} updated")
+
+        except Exception as e:
+             print(
+                     f"{filename} update failed:",
+                     e
+        )
+
+    def download_filters(self):
+
+        self.download_filter(
+            OISD_URL,
+            OISD_FILE
+        )
+
+        self.download_filter(
+            EASYPRIVACY_URL,
+            EASYPRIVACY_FILE
+        )
+
+
+    def load_filters(self):
+
+        files = [
+            OISD_FILE,
+            EASYPRIVACY_FILE
+        ]
+
+        for filename in files:
+
+            if not os.path.exists(filename):
+                continue
+
+            with open(
+                filename,
+                "r",
+                encoding="utf-8"
+            ) as file:
+
                 for line in file:
+
                     line = line.strip()
 
-                    # Skip empty lines
+                    # skip empty
                     if not line:
                         continue
 
-                    # Skip comments
-                    if line.startswith("#"):
+                    # skip comments
+                    if line.startswith("!"):
+                         continue
+
+                    if line.startswith("["):
+                            continue
+
+                    if line.startswith("@@"):
                         continue
+                    if "##" in line:
+                         continue
+                    line = line.split("$")[0].strip()
 
-                    parts = line.split()
+                    # remove unsupported modifiers
+                    if line.endswith("^"):
+                      line = line[:-1]
 
-                   
-                    # 127.0.0.1 ads.example.com
-                    if len(parts) != 2:
-                        continue
+                    self.rules.add(line)
 
-                    ip, host = parts
 
-                    self.rules.add(host.lower())
+        print(
+            f"Loaded {len(self.rules)} rules"
+        )
 
-        except FileNotFoundError:
-            print("Could not find filters/peter_lowe.txt")
 
     def interceptRequest(self, info):
-        host = info.requestUrl().host().lower()
 
-        if host in self.rules:
-            print("Blocked:", host)
-            info.block(True)
+        url = info.requestUrl().toString()
+
+        for rule in self.rules:
+
+            # domain rules
+            if rule.startswith("||"):
+
+                
+                domain = rule[2:].split("^")[0]
+
+                if domain and domain in url:
+
+                    print("Blocked:", domain)
+                    info.block(True)
+                    return
+
+
+            # path rules from EasyPrivacy
+            elif rule.startswith("/"):
+
+                path = rule
+
+                if path in url:
+
+                    print("Blocked:", path)
+                    info.block(True)
+                    return

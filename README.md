@@ -1,5 +1,9 @@
 # Plus Browser
 
+- open source
+- no bloat
+- no data collection 
+
 ## Structure
 - `main.py` — application entrypoint
 - `browser.py` — main browser window
@@ -28,3 +32,9 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+## Requirements 
+
+- `Memory per tab :` 10mb - 200mb 
+-- depending on the website
+- `Cpu :` 2 cores / 2 threads **(recommended)**

@@ -22,4 +22,4 @@ dist/
 *.swp
 
 # macOS
-.DS_Store
+.DS_Storefilters/

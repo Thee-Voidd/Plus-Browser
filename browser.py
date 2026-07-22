@@ -14,8 +14,11 @@ from tab import BrowserTab
 from shortcuts import register_shortcuts
 from PyQt6.QtWebEngineCore import QWebEngineProfile
 from adblocker import AdBlocker
-
+from browser_profile import setup_profile
+from fingerprint import install_fingerprint_protection
+from privacy import PrivacyDialog
 class BrowserWindow(QMainWindow):
+    
     def __init__(self, settings: SettingsManager):
 
         super().__init__()
@@ -23,12 +26,17 @@ class BrowserWindow(QMainWindow):
         self.setWindowTitle("Plus Browser")
         self.resize(1280, 840)
         self.setStyleSheet(load_stylesheet(self.settings.accent_color))
+        
 
         self.closed_tabs = []
         self.bookmark_manager = BookmarkManager()
         self.history_manager = HistoryManager()
         self.downloads_manager = DownloadsManager(self)
+        #profile fingerprint proofing
         self.profile = QWebEngineProfile("PlusBrowser", self)
+        setup_profile(self.profile)
+        install_fingerprint_protection(self.profile)
+        print(self.profile.httpUserAgent())
         self.profile.downloadRequested.connect(
         self.downloads_manager.handle_download
         )       
@@ -47,7 +55,7 @@ class BrowserWindow(QMainWindow):
         self.toolbar = BrowserToolBar(self)
         self.addToolBar(self.toolbar)
         self.url_bar = self.toolbar.url_bar
-
+        self.privacy_window = PrivacyDialog(self)       
         self.bookmarks_window = BookmarksDialog(self.bookmark_manager, self)
         self.history_window = HistoryDialog(self.history_manager, self)
 
@@ -191,7 +199,13 @@ class BrowserWindow(QMainWindow):
         self.history_window.show()
         self.history_window.raise_()
         self.history_window.activateWindow()
+    def open_privacy(self):
 
+        self.privacy_window.show()
+
+        self.privacy_window.raise_()
+
+        self.privacy_window.activateWindow()
     def toggleFullScreen(self):
         if self.windowState() & Qt.WindowState.WindowFullScreen:
             self.setWindowState(self.windowState() & ~Qt.WindowState.WindowFullScreen)

@@ -10,8 +10,11 @@ class BrowserToolBar(QToolBar):
         self.setIconSize(QSize(20, 20))
         self.setMovable(False)
 
+        # 1. Back / Forward Buttons with clean delayed popup menus
         self.back_button = self._create_history_button("←", "Back", self.browser.go_back)
         self.forward_button = self._create_history_button("→", "Forward", self.browser.go_forward)
+
+        # 2. Main Navigation Controls
         self.reload_action = QAction("⟳", self)
         self.reload_action.setToolTip("Reload")
         self.reload_action.triggered.connect(self.browser.reload_page)
@@ -30,20 +33,31 @@ class BrowserToolBar(QToolBar):
         self.new_tab_action = QAction("+", self)
         self.new_tab_action.setToolTip("New Tab")
         self.new_tab_action.triggered.connect(self.browser.new_tab)
-        self.addAction(self.new_tab_action)
-
+        self.addAction(self.new_tab_action)             
+        
         self.addSeparator()
+
+        # 3. URL Bar
         self.url_bar = QLineEdit(self)
         self.url_bar.setPlaceholderText("Search or enter address")
         self.url_bar.returnPressed.connect(self.browser.navigate)
         self.addWidget(self.url_bar)
 
+        # 4. Shield / Privacy Action
+        self.shield_action = QAction("ᗢ", self)  # Swapped unicode shield symbol for visual clarity
+        self.shield_action.setToolTip("Privacy Protection")
+        self.shield_action.triggered.connect(self.browser.open_privacy)
+        self.addAction(self.shield_action)   
+
         self.addSeparator()
+
+        # 5. Bookmarks Action
         self.bookmark_page_action = QAction("★", self)
         self.bookmark_page_action.setToolTip("Bookmark current page")
         self.bookmark_page_action.triggered.connect(self.browser.bookmark_current_page)
         self.addAction(self.bookmark_page_action)
 
+        # 6. Hamburger Menu
         self.menu_button = QToolButton(self)
         self.menu_button.setIcon(self._create_hamburger_icon())
         self.menu_button.setIconSize(QSize(20, 20))
@@ -52,18 +66,11 @@ class BrowserToolBar(QToolBar):
         self.menu_menu.addAction("Bookmarks", self.browser.open_bookmarks_menu)
         self.menu_menu.addAction("History", self.browser.open_history)
         self.menu_menu.addAction("Downloads", self.browser.open_downloads)
-        self.menu_button.clicked.connect(lambda: self.menu_menu.exec(self.menu_button.mapToGlobal(self.menu_button.rect().bottomLeft())))
+        
+        # Proper popup mapping
+        self.menu_button.setMenu(self.menu_menu)
+        self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.addWidget(self.menu_button)
-
-       # self.downloads_action = QAction("⬇", self)
-       # self.downloads_action.setToolTip("Downloads")
-       # self.downloads_action.triggered.connect(self.browser.open_downloads)
-       # self.addAction(self.downloads_action)
-
-      #  self.settings_action = QAction("⚙", self)
-      #   self.settings_action.setToolTip("Settings")
-      #  self.settings_action.triggered.connect(self.browser.open_settings)
-      #  self.addAction(self.settings_action)
 
     def _create_hamburger_icon(self):
         """Create a hamburger menu icon (three horizontal lines)."""
@@ -80,11 +87,15 @@ class BrowserToolBar(QToolBar):
         return QIcon(pixmap)
 
     def _create_history_button(self, text, tooltip, callback):
+        """Creates a sleek tool button that clicks normally and shows history on hold/menu."""
         button = QToolButton(self)
         button.setText(text)
         button.setToolTip(tooltip)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        
+        # DelayedPopup prevents Qt from rendering separate drop-arrow columns
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
         button.clicked.connect(callback)
+        
         menu = QMenu(button)
         button.setMenu(menu)
         self.addWidget(button)

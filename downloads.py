@@ -1,6 +1,6 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QWidget,
+    QDialog,
     QVBoxLayout,
     QTableWidget,
     QTableWidgetItem,
@@ -14,9 +14,11 @@ from PyQt6.QtCore import Qt
 
 class DownloadsManager:
     def __init__(self, parent=None):
-        self.window = QWidget(parent)
+        # 1. Use QDialog so it pops up as its own window instead of embedding into main UI
+        self.window = QDialog(parent)
         self.window.setWindowTitle("Downloads")
         self.window.resize(700, 340)
+        
         layout = QVBoxLayout(self.window)
 
         control_layout = QHBoxLayout()
@@ -35,7 +37,10 @@ class DownloadsManager:
         self.window.setLayout(layout)
 
     def show_window(self):
+        # 2. Show as a pop-up window on top
         self.window.show()
+        self.window.raise_()
+        self.window.activateWindow()
 
     def handle_download(self, download: QWebEngineDownloadRequest):
         row = self.table.rowCount()

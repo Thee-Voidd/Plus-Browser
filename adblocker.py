@@ -14,13 +14,13 @@ class AdBlocker(QWebEngineUrlRequestInterceptor):
     def __init__(self):
         super().__init__()
 
+        self.enabled = True
         self.rules = set()
 
         os.makedirs("filters", exist_ok=True)
 
         self.download_filters()
         self.load_filters()
-        
 
     def download_filter(self, url, filename):
 
@@ -114,8 +114,10 @@ class AdBlocker(QWebEngineUrlRequestInterceptor):
 
     def interceptRequest(self, info):
 
-        url = info.requestUrl().toString()
+        if not self.enabled:
+         return
 
+        url = info.requestUrl().toString()
         for rule in self.rules:
 
             # domain rules

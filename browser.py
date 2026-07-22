@@ -3,8 +3,8 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QKeySequence
 import os
+import sys
 from pathlib import Path
-from PyQt6.QtCore import QUrl
 from ui.toolbar import BrowserToolBar
 from ui.tabs import BrowserTabWidget
 from ui.theme import load_stylesheet
@@ -14,11 +14,20 @@ from history import HistoryManager, HistoryDialog
 from settings import SettingsManager
 from tab import BrowserTab
 from shortcuts import register_shortcuts
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInfo
 from adblocker import AdBlocker
 from browser_profile import setup_profile
 from fingerprint import install_fingerprint_protection
 from privacy import PrivacyDialog
+
+
+def get_asset_path(relative_path: str) -> str:
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys.MEIPASS if hasattr(sys, 'MEIPASS') else getattr(sys, '_MEIPASS')
+    else:
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
 
 
 class BrowserWindow(QMainWindow):
@@ -26,48 +35,29 @@ class BrowserWindow(QMainWindow):
     def __init__(self, settings: SettingsManager):
         super().__init__()
   
-
+        # Set absolute path for local landing page using PyInstaller-safe resolver
+        STARTPAGE_PATH = get_asset_path("assets/startpage.html")
+        STARTPAGE_URL = QUrl.fromLocalFile(STARTPAGE_PATH).toString()
+        
         self.settings = settings
+        self.settings.homepage = STARTPAGE_URL         
         self.setWindowTitle("Plus Browser")
         self.resize(1280, 840)
         self.setStyleSheet(load_stylesheet(self.settings.accent_color))
 
-        # Flag to track download triggers and mute false-positive load error popups
+        # Flag to track download triggers
         self._is_downloading = False
         self.closed_tabs = []
         self.bookmark_manager = BookmarkManager()
         self.history_manager = HistoryManager()
         self.downloads_manager = DownloadsManager(self)
 
-        # Profile fingerprint proofing
+        # Profile setup & fingerprint protection
         self.profile = QWebEngineProfile("PlusBrowser", self)
         setup_profile(self.profile)
         install_fingerprint_protection(self.profile)
-        print(self.profile.httpUserAgent())
 
-        # Route downloads through a wrapper to catch the trigger state
-        self.profile.downloadRequested.connect(self._on_download_requested)
-
-        self.adblocker = AdBlocker()
-        self.profile.setUrlRequestInterceptor(self.adblocker)
-
-        self.tabs = BrowserTabWidget()
-        self.tabs.setTabsClosable(True)
-        self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.tabs.currentChanged.connect(self.change_tab)
-        self.tabs.set_add_tab_callback(self.new_tab)
-        self.setCentralWidget(self.tabs)
-
-        self.toolbar = BrowserToolBar(self)
-        self.addToolBar(self.toolbar)
-        self.url_bar = self.toolbar.url_bar
-        self.privacy_window = PrivacyDialog(self)
-        self.bookmarks_window = BookmarksDialog(self.bookmark_manager, self)
-        self.history_window = HistoryDialog(self.history_manager, self)
-
-        register_shortcuts(self)
-        self.add_tab(self.settings.homepage)
-
+        # Enable local content cross-origin permissions
         profile_settings = self.profile.settings()
         profile_settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
@@ -76,14 +66,49 @@ class BrowserWindow(QMainWindow):
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
         )
 
-    def _on_download_requested(self, download):
+        # Download handling
+        self.profile.downloadRequested.connect(self._on_download_requested)
 
+        # AdBlocker setup
+        self.adblocker = AdBlocker()
+        self.profile.setUrlRequestInterceptor(self.adblocker)
+
+        # Tab widget setup
+        self.tabs = BrowserTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self.change_tab)
+        self.tabs.set_add_tab_callback(self.new_tab)
+        self.setCentralWidget(self.tabs)
+
+        # Toolbar & dialogs
+        self.toolbar = BrowserToolBar(self)
+        self.addToolBar(self.toolbar)
+        self.url_bar = self.toolbar.url_bar
+        self.privacy_window = PrivacyDialog(self)
+        
+        # Pass self.open_tab as callback for double-clicks in the dialog
+        self.bookmarks_window = BookmarksDialog(self.bookmark_manager, open_callback=self.open_tab, parent=self)
+        self.history_window = HistoryDialog(self.history_manager, self)
+
+        register_shortcuts(self)
+        # Bookmarks
+        # Single initial tab load
+        self.add_tab(self.settings.homepage, title="New Tab")
+
+    def _on_download_requested(self, download):
         self._is_downloading = True
         self.downloads_manager.handle_download(download)
 
     def add_tab(self, url: str = None, title: str = "New Tab"):
         browser = BrowserTab(self.profile)
-        browser.setUrl(QUrl(url or self.settings.homepage))
+        
+        # Ensure scheme is present if loading an external URL
+        target_url = url or self.settings.homepage
+        if not target_url.startswith(("http://", "https://", "file://", "about:")):
+            target_url = "https://" + target_url
+
+        browser.setUrl(QUrl(target_url))
         browser.urlChanged.connect(
             lambda new_url, b=browser: self.update_url(new_url, b)
         )
@@ -101,10 +126,10 @@ class BrowserWindow(QMainWindow):
         return self.tabs.currentWidget()
 
     def new_tab(self):
-        self.add_tab(self.settings.homepage)
+        self.add_tab(self.settings.homepage, title="New Tab")
 
     def open_tab(self, url: str):
-        self.add_tab(url, title=url)
+        self.add_tab(url, title="New Tab")
 
     def navigate(self):
         browser = self.current_browser()
@@ -115,18 +140,12 @@ class BrowserWindow(QMainWindow):
         if not raw:
             return
 
-        # Check if input is a search query
         if " " in raw or "." not in raw:
             encoded_query = QUrl.toPercentEncoding(raw).data().decode("utf-8")
-            
-            # Force full Google search URL
             search_str = f"https://www.google.com/search?q={encoded_query}"
-            
-            # MUST use QUrl.fromUserInput so Qt parses the '?' query string correctly
             browser.setUrl(QUrl.fromUserInput(search_str))
             return
 
-        # Direct web address navigation
         browser.setUrl(QUrl.fromUserInput(raw))
 
     def go_back(self):
@@ -156,19 +175,28 @@ class BrowserWindow(QMainWindow):
 
     def update_url(self, url: QUrl, browser: QWebEngineView):
         index = self.tabs.indexOf(browser)
+        url_str = url.toString()
+
         if index >= 0:
-            self.tabs.setTabText(
-                index, browser.page().title() or url.toString()
-            )
+            if url_str == self.settings.homepage:
+                self.tabs.setTabText(index, "New Tab")
+            else:
+                self.tabs.setTabText(index, browser.page().title() or url_str)
 
         if browser == self.current_browser():
-            self.url_bar.setText(url.toString())
+            if url_str == self.settings.homepage:
+                self.url_bar.clear()
+            else:
+                self.url_bar.setText(url_str)
             self.toolbar.refresh()
 
     def update_title(self, browser: QWebEngineView):
         index = self.tabs.indexOf(browser)
         if index >= 0:
-            self.tabs.setTabText(index, browser.page().title() or "New Tab")
+            if browser.url().toString() == self.settings.homepage:
+                self.tabs.setTabText(index, "New Tab")
+            else:
+                self.tabs.setTabText(index, browser.page().title() or "New Tab")
 
     def on_load_finished(self, success: bool, browser: QWebEngineView):
         if browser != self.current_browser():
@@ -178,7 +206,8 @@ class BrowserWindow(QMainWindow):
 
         if success:
             url_str = browser.url().toString()
-            if url_str and url_str != "about:blank":
+            # Do not save local landing page visits to history
+            if url_str and url_str != "about:blank" and url_str != self.settings.homepage:
                 self.history_manager.add_entry(url_str, browser.page().title())
 
     def change_tab(self, index: int):
@@ -187,7 +216,12 @@ class BrowserWindow(QMainWindow):
             self.url_bar.clear()
             return
 
-        self.url_bar.setText(browser.url().toString())
+        url_str = browser.url().toString()
+        if url_str == self.settings.homepage:
+            self.url_bar.clear()
+        else:
+            self.url_bar.setText(url_str)
+
         self.toolbar.refresh()
 
     def close_tab(self, index: int):
@@ -196,9 +230,11 @@ class BrowserWindow(QMainWindow):
 
         browser = self.tabs.widget(index)
         if browser:
-            self.closed_tabs.append(
-                (browser.url().toString(), browser.page().title() or "New Tab")
-            )
+            url_str = browser.url().toString()
+            if url_str != self.settings.homepage:
+                self.closed_tabs.append(
+                    (url_str, browser.page().title() or "New Tab")
+                )
         self.tabs.removeTab(index)
         self.toolbar.refresh()
 
@@ -209,23 +245,22 @@ class BrowserWindow(QMainWindow):
         url, title = self.closed_tabs.pop()
         self.add_tab(url, title=title)
 
-    def bookmark_current_page(self):
-        browser = self.current_browser()
-        if browser is None:
-            return
-
-        url = browser.url().toString()
-        title = browser.page().title() or url
-        self.bookmark_manager.add_bookmark(title, url)
-        QMessageBox.information(
-            self, "Bookmark added", f"{title} was added to bookmarks."
-        )
-
-    def open_bookmarks_menu(self):
+    def open_bookmarks_dialog(self):
         self.bookmarks_window.update_bookmarks()
         self.bookmarks_window.show()
         self.bookmarks_window.raise_()
         self.bookmarks_window.activateWindow()
+
+    def open_bookmarks_menu(self):
+        self.open_bookmarks_dialog()
+        
+    def bookmark_current_page(self):
+        current_web = self.current_browser()
+        if current_web:
+            title = current_web.page().title() or current_web.url().toString()
+            url = current_web.url().toString()
+            if url and url != self.settings.homepage:
+                self.bookmark_manager.add_bookmark(title, url)
 
     def open_history(self):
         self.history_window.update_history()

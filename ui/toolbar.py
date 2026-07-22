@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QToolBar, QToolButton, QLineEdit, QMenu
-from PyQt6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor
+from PyQt6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor, QPen
 from PyQt6.QtCore import QSize, Qt
 
 
@@ -10,11 +10,11 @@ class BrowserToolBar(QToolBar):
         self.setIconSize(QSize(20, 20))
         self.setMovable(False)
 
-        # 1. Back / Forward Buttons with clean delayed popup menus
+        # 1. Back / Forward Buttons
         self.back_button = self._create_history_button("←", "Back", self.browser.go_back)
         self.forward_button = self._create_history_button("→", "Forward", self.browser.go_forward)
 
-        # 2. Main Navigation Controls
+        # 2. Navigation Actions
         self.reload_action = QAction("⟳", self)
         self.reload_action.setToolTip("Reload")
         self.reload_action.triggered.connect(self.browser.reload_page)
@@ -43,19 +43,20 @@ class BrowserToolBar(QToolBar):
         self.url_bar.returnPressed.connect(self.browser.navigate)
         self.addWidget(self.url_bar)
 
-        # 4. Shield / Privacy Action
-        self.shield_action = QAction("ᗢ", self)  # Swapped unicode shield symbol for visual clarity
+        # 4. Shield / Privacy Button (Rendered cleanly via QPainter)
+        self.shield_action = QAction(self._create_shield_icon(), "", self)
         self.shield_action.setToolTip("Privacy Protection")
         self.shield_action.triggered.connect(self.browser.open_privacy)
         self.addAction(self.shield_action)   
 
         self.addSeparator()
 
-        # 5. Bookmarks Action
+        # 5. Add Bookmark Action 
         self.bookmark_page_action = QAction("★", self)
         self.bookmark_page_action.setToolTip("Bookmark current page")
         self.bookmark_page_action.triggered.connect(self.browser.bookmark_current_page)
         self.addAction(self.bookmark_page_action)
+
 
         # 6. Hamburger Menu
         self.menu_button = QToolButton(self)
@@ -67,32 +68,47 @@ class BrowserToolBar(QToolBar):
         self.menu_menu.addAction("History", self.browser.open_history)
         self.menu_menu.addAction("Downloads", self.browser.open_downloads)
         
-        # Proper popup mapping
         self.menu_button.setMenu(self.menu_menu)
         self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.addWidget(self.menu_button)
 
     def _create_hamburger_icon(self):
-        """Create a hamburger menu icon (three horizontal lines)."""
         pixmap = QPixmap(20, 20)
         pixmap.fill(QColor(0, 0, 0, 0))
         painter = QPainter(pixmap)
-        painter.setPen(QColor("#e8eaed"))
+        painter.setPen(QPen(QColor("#a1a1aa"), 2))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawLine(3, 5, 17, 5)
         painter.drawLine(3, 10, 17, 10)
         painter.drawLine(3, 15, 17, 15)
         painter.end()
         return QIcon(pixmap)
 
+    def _create_shield_icon(self):
+        """Draws a clean, vector shield icon directly to avoid missing font emojis."""
+        pixmap = QPixmap(20, 20)
+        pixmap.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(pixmap)
+        painter.setPen(QPen(QColor("#c084fc"), 1.8))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Draw shield contour
+        path = [
+            (10, 3), (16, 5), (16, 11),
+            (10, 17), (4, 11), (4, 5)
+        ]
+        for i in range(len(path)):
+            p1 = path[i]
+            p2 = path[(i + 1) % len(path)]
+            painter.drawLine(p1[0], p1[1], p2[0], p2[1])
+            
+        painter.end()
+        return QIcon(pixmap)
+
     def _create_history_button(self, text, tooltip, callback):
-        """Creates a sleek tool button that clicks normally and shows history on hold/menu."""
         button = QToolButton(self)
         button.setText(text)
         button.setToolTip(tooltip)
-        
-        # DelayedPopup prevents Qt from rendering separate drop-arrow columns
         button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
         button.clicked.connect(callback)
         

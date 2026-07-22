@@ -1,143 +1,219 @@
-import json
+import sqlite3
 from pathlib import Path
+from datetime import datetime
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog,
-    QHBoxLayout,
-    QLabel,
+    QVBoxLayout,
     QLineEdit,
-    QMenu,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
     QHeaderView,
+    QLabel,
+    QHBoxLayout,
+    QPushButton,
+    QMenu,
+    QInputDialog,
 )
 
 
 class BookmarkManager:
-    def __init__(self, path: Path = Path("data/bookmarks.json")):
+    def __init__(self, path: Path = Path("data/bookmarks.db")):
         self.path = Path(path)
-        self.folders = {
-            "toolbar": [],
-            "programming": [],
-            "school": [],
-            "favorites": [],
-        }
-        self._load()
-
-    def _load(self):
-        if self.path.exists():
-            try:
-                loaded = json.loads(self.path.read_text(encoding="utf-8"))
-                self.folders.update(loaded)
-            except Exception:
-                self._save()
-        else:
-            self._save()
-
-    def _save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.folders, indent=2), encoding="utf-8")
+        self.connection = sqlite3.connect(str(self.path), check_same_thread=False)
+        self._create_tables()
 
-    def add_bookmark(self, title: str, url: str, folder: str = "toolbar"):
-        folder = folder if folder in self.folders else "toolbar"
-        bookmark = {"title": title, "url": url}
-        self.folders[folder].append(bookmark)
-        self._save()
+    def _create_tables(self):
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL UNIQUE,
+                title TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self.connection.commit()
 
-    def remove_bookmark(self, folder: str, index: int):
-        if folder in self.folders and 0 <= index < len(self.folders[folder]):
-            del self.folders[folder][index]
-            self._save()
+    def add_bookmark(self, title: str = "", url: str = ""):
+        if not title and not url:
+            return
 
-    def get_menu(self, parent, open_callback):
-        menu = QMenu("Bookmarks", parent)
-        for folder_name, entries in self.folders.items():
-            if folder_name == "toolbar":
-                for entry in entries:
-                    action = menu.addAction(entry["title"])
-                    action.triggered.connect(lambda checked, u=entry["url"]: open_callback(u))
-            else:
-                submenu = menu.addMenu(folder_name.title())
-                for entry in entries:
-                    action = submenu.addAction(entry["title"])
-                    action.triggered.connect(lambda checked, u=entry["url"]: open_callback(u))
-        return menu
+        if title.startswith(("http://", "https://", "file://", "about:")) and not url.startswith(("http://", "https://", "file://", "about:")):
+            title, url = url, title
+
+        actual_url = url or title
+        actual_title = title or url
+
+        if not actual_url:
+            return
+
+        self.connection.execute(
+            "INSERT OR REPLACE INTO bookmarks (url, title, created_at) VALUES (?, ?, ?)",
+            (actual_url, actual_title, datetime.utcnow().isoformat()),
+        )
+        self.connection.commit()
+
+    def update_title(self, bookmark_id: int, new_title: str):
+        self.connection.execute(
+            "UPDATE bookmarks SET title = ? WHERE id = ?",
+            (new_title, bookmark_id),
+        )
+        self.connection.commit()
+
+    def delete_bookmark(self, bookmark_id: int):
+        self.connection.execute("DELETE FROM bookmarks WHERE id = ?", (bookmark_id,))
+        self.connection.commit()
+
+    def all_items(self):
+        cursor = self.connection.execute(
+            "SELECT id, url, title, created_at FROM bookmarks ORDER BY id DESC"
+        )
+        return cursor.fetchall()
 
 
 class BookmarksDialog(QDialog):
-    def __init__(self, manager: BookmarkManager, parent=None):
+    def __init__(self, manager: BookmarkManager = None, open_callback=None, parent=None):
         super().__init__(parent)
-        self.manager = manager
+        self.manager = manager or BookmarkManager()
+        self.open_callback = open_callback
         self.setWindowTitle("Bookmarks")
-        self.resize(760, 420)
+        self.resize(780, 420)
+
+        # منع الخط المايل في شباك البوك مارك بالكامل
+        base_font = self.font()
+        base_font.setItalic(False)
+        self.setFont(base_font)
+
+        # إجبار جميع الأزرار والـ Elements على منع الـ Italic عن طريق QSS
+        self.setStyleSheet("""
+            QWidget {
+                font-style: normal;
+            }
+            QPushButton {
+                font-style: normal;
+                font-weight: normal;
+                padding: 6px 14px;
+            }
+        """)
 
         layout = QVBoxLayout(self)
-        header_layout = QHBoxLayout()
-        header_layout.addWidget(QLabel("Bookmarks", self))
-        self.search_input = QLineEdit(self)
-        self.search_input.setPlaceholderText("Search bookmarks")
-        self.search_input.textChanged.connect(self.update_bookmarks)
-        header_layout.addWidget(self.search_input)
-        layout.addLayout(header_layout)
+        top_row = QHBoxLayout()
+        top_row.addWidget(QLabel("Search bookmarks:", self))
+        self.filter_input = QLineEdit(self)
+        self.filter_input.setPlaceholderText("Search by title or URL")
+        self.filter_input.textChanged.connect(self.update_bookmarks)
+        top_row.addWidget(self.filter_input)
+        layout.addLayout(top_row)
 
         self.table = QTableWidget(0, 3, self)
-        self.table.setHorizontalHeaderLabels(["Title", "URL", "Folder"])
+        self.table.setHorizontalHeaderLabels(["Title", "URL", "Added"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        # Enable context menu
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._open_context_menu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+
         self.table.cellDoubleClicked.connect(self._open_selected_entry)
         layout.addWidget(self.table)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        self.rename_btn = QPushButton("Rename", self)
+        self.rename_btn.clicked.connect(self._rename_current_selection)
+        btn_row.addWidget(self.rename_btn)
+
+        self.delete_btn = QPushButton("Delete", self)
+        self.delete_btn.clicked.connect(self._delete_current_selection)
+        btn_row.addWidget(self.delete_btn)
+
+        layout.addLayout(btn_row)
 
         self.update_bookmarks()
 
     def update_bookmarks(self):
-        filter_text = self.search_input.text().lower().strip()
+        term = self.filter_input.text().lower().strip() if hasattr(self, "filter_input") else ""
         self.table.setRowCount(0)
-        for folder_name, entries in self.manager.folders.items():
-            for index, entry in enumerate(entries):
-                title = entry.get("title") or entry.get("url")
-                url = entry.get("url")
-                if filter_text and filter_text not in title.lower() and filter_text not in url.lower():
-                    continue
-                row = self.table.rowCount()
-                self.table.insertRow(row)
+        for bookmark_id, url, title, created_at in self.manager.all_items():
+            if term and term not in url.lower() and term not in (title or "").lower():
+                continue
+            row = self.table.rowCount()
+            self.table.insertRow(row)
 
-                title_item = QTableWidgetItem(title)
-                title_item.setData(Qt.ItemDataRole.UserRole, (folder_name, index))
-                self.table.setItem(row, 0, title_item)
-                self.table.setItem(row, 1, QTableWidgetItem(url))
-                self.table.setItem(row, 2, QTableWidgetItem(folder_name.title()))
+            title_item = QTableWidgetItem(title or url)
+            title_item.setData(Qt.ItemDataRole.UserRole, bookmark_id)
 
-    def _open_context_menu(self, pos):
-        row = self.table.rowAt(pos.y())
-        if row < 0:
-            return
+            self.table.setItem(row, 0, title_item)
+            self.table.setItem(row, 1, QTableWidgetItem(url))
+            self.table.setItem(row, 2, QTableWidgetItem(created_at))
 
-        menu = QMenu(self)
-        delete_action = menu.addAction("Delete")
-        selected = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if selected == delete_action:
-            self._delete_bookmark(row)
-
-    def _delete_bookmark(self, row: int):
-        item = self.table.item(row, 0)
+    def _show_context_menu(self, pos):
+        item = self.table.itemAt(pos)
         if not item:
             return
 
-        data = item.data(Qt.ItemDataRole.UserRole)
-        if not data:
+        row = item.row()
+        self.table.selectRow(row)
+
+        menu = QMenu(self)
+        open_action = menu.addAction("Open in New Tab")
+        rename_action = menu.addAction("Rename Bookmark")
+        delete_action = menu.addAction("Delete Bookmark")
+
+        selected = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if selected == open_action:
+            self._open_selected_entry(row, 1)
+        elif selected == rename_action:
+            self._rename_bookmark(row)
+        elif selected == delete_action:
+            self._delete_bookmark(row)
+
+    def _rename_current_selection(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            self._rename_bookmark(row)
+
+    def _delete_current_selection(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            self._delete_bookmark(row)
+
+    def _rename_bookmark(self, row: int):
+        title_item = self.table.item(row, 0)
+        if not title_item:
             return
 
-        folder_name, index = data
-        self.manager.remove_bookmark(folder_name, index)
-        self.update_bookmarks()
+        bookmark_id = title_item.data(Qt.ItemDataRole.UserRole)
+        current_title = title_item.text()
 
-    def _open_selected_entry(self, row: int, _column: int):
+        new_title, ok = QInputDialog.getText(
+            self, "Rename Bookmark", "Enter new title:", QLineEdit.EchoMode.Normal, current_title
+        )
+        if ok and new_title.strip():
+            self.manager.update_title(bookmark_id, new_title.strip())
+            self.update_bookmarks()
+
+    def _delete_bookmark(self, row: int):
+        title_item = self.table.item(row, 0)
+        if title_item:
+            bookmark_id = title_item.data(Qt.ItemDataRole.UserRole)
+            if bookmark_id is not None:
+                self.manager.delete_bookmark(bookmark_id)
+                self.update_bookmarks()
+
+    def _open_selected_entry(self, row, _column):
         url_item = self.table.item(row, 1)
-        if url_item and self.parent() and hasattr(self.parent(), "open_tab"):
-            self.parent().open_tab(url_item.text())
+        if url_item:
+            url = url_item.text()
+            if callable(self.open_callback):
+                self.open_callback(url)
+            elif self.parent() and hasattr(self.parent(), "open_tab"):
+                self.parent().open_tab(url)
             self.close()

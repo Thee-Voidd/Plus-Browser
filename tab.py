@@ -11,3 +11,4 @@ class BrowserTab(QWebEngineView):
 
         page = QWebEnginePage(profile, self)
         self.setPage(page)
+        

@@ -20,12 +20,31 @@ class PrivacyDialog(QDialog):
 
         self.resize(200, 100)
 
+        # منع الخط المايل في شباك الخصوصية بالكامل
+        base_font = self.font()
+        base_font.setItalic(False)
+        self.setFont(base_font)
+
+        # إجبار جميع الأزرار والعناصر على الخط العادي
+        self.setStyleSheet("""
+            QWidget {
+                font-style: normal;
+            }
+            QPushButton {
+                font-style: normal;
+                font-weight: normal;
+                padding: 6px 14px;
+            }
+            QCheckBox {
+                font-style: normal;
+            }
+        """)
+
         layout = QVBoxLayout()
 
         layout.addWidget(
             QLabel("ᗢ Tracking Protection")
         )
-
 
         self.protection = QCheckBox(
             "Enable protection"
@@ -43,7 +62,6 @@ class PrivacyDialog(QDialog):
             self.protection
         )
 
-
         close = QPushButton(
             "Close"
         )
@@ -56,11 +74,9 @@ class PrivacyDialog(QDialog):
             close
         )
 
-
         self.setLayout(
             layout
         )
-
 
     def toggle_protection(self):
 

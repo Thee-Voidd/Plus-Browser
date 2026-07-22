@@ -38,3 +38,9 @@ python main.py
 - `Memory per tab :` 10mb - 200mb 
 -- depending on the website
 - `Cpu :` 2 cores / 2 threads **(recommended)**
+- `Operating system :` Linux
+
+## Credits
+`Made by :`
+- Mohamed Khaled (Backend)
+- Ezz Mohamed (Landing Page)

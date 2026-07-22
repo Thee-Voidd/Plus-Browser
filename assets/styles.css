@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+body {
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(
+            circle at top center,
+            rgba(255, 220, 240, 0) 0%,
+            transparent 55%
+        ),
+        linear-gradient(
+            to bottom,
+            #303030,
+            #0e0e0e
+        );
+
+    position: relative;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: url("https://www.transparenttextures.com/patterns/otis-redding.png");
+    opacity: 0.45;
+    pointer-events: none;
+    z-index: -1;
+}

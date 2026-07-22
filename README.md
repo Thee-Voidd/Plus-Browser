@@ -40,6 +40,6 @@ python main.py
 - `Cpu :` 2 cores / 2 threads **(recommended)**
 
 ## Credits
-Made by ,
+`Made by :`
 - Mohamed Khaled
 - Ezz Mohamed

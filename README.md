@@ -39,3 +39,4 @@ python main.py
 - `Memory per tab :` 10mb - 200mb 
 -- depending on the website
 - `Cpu :` 2 cores / 2 threads **(recommended)**
+- `Storage :` 1 gb

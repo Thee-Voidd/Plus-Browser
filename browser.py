@@ -1,8 +1,10 @@
-from PyQt6.QtWidgets import QMainWindow, QMessageBox
+from PyQt6.QtWidgets import QMainWindow, QMessageBox, QApplication
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QKeySequence
-
+import os
+from pathlib import Path
+from PyQt6.QtCore import QUrl
 from ui.toolbar import BrowserToolBar
 from ui.tabs import BrowserTabWidget
 from ui.theme import load_stylesheet
@@ -12,37 +14,41 @@ from history import HistoryManager, HistoryDialog
 from settings import SettingsManager
 from tab import BrowserTab
 from shortcuts import register_shortcuts
-from PyQt6.QtWebEngineCore import QWebEngineProfile
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
 from adblocker import AdBlocker
 from browser_profile import setup_profile
 from fingerprint import install_fingerprint_protection
 from privacy import PrivacyDialog
-class BrowserWindow(QMainWindow):
-    
-    def __init__(self, settings: SettingsManager):
 
+
+class BrowserWindow(QMainWindow):
+
+    def __init__(self, settings: SettingsManager):
         super().__init__()
+  
+
         self.settings = settings
         self.setWindowTitle("Plus Browser")
         self.resize(1280, 840)
         self.setStyleSheet(load_stylesheet(self.settings.accent_color))
-        
 
+        # Flag to track download triggers and mute false-positive load error popups
+        self._is_downloading = False
         self.closed_tabs = []
         self.bookmark_manager = BookmarkManager()
         self.history_manager = HistoryManager()
         self.downloads_manager = DownloadsManager(self)
-        #profile fingerprint proofing
+
+        # Profile fingerprint proofing
         self.profile = QWebEngineProfile("PlusBrowser", self)
         setup_profile(self.profile)
         install_fingerprint_protection(self.profile)
         print(self.profile.httpUserAgent())
-        self.profile.downloadRequested.connect(
-        self.downloads_manager.handle_download
-        )       
-        
+
+        # Route downloads through a wrapper to catch the trigger state
+        self.profile.downloadRequested.connect(self._on_download_requested)
+
         self.adblocker = AdBlocker()
-        #connects
         self.profile.setUrlRequestInterceptor(self.adblocker)
 
         self.tabs = BrowserTabWidget()
@@ -55,19 +61,35 @@ class BrowserWindow(QMainWindow):
         self.toolbar = BrowserToolBar(self)
         self.addToolBar(self.toolbar)
         self.url_bar = self.toolbar.url_bar
-        self.privacy_window = PrivacyDialog(self)       
+        self.privacy_window = PrivacyDialog(self)
         self.bookmarks_window = BookmarksDialog(self.bookmark_manager, self)
         self.history_window = HistoryDialog(self.history_manager, self)
 
         register_shortcuts(self)
         self.add_tab(self.settings.homepage)
 
+        profile_settings = self.profile.settings()
+        profile_settings.setAttribute(
+            QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
+        )
+        profile_settings.setAttribute(
+            QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
+        )
+
+    def _on_download_requested(self, download):
+
+        self._is_downloading = True
+        self.downloads_manager.handle_download(download)
 
     def add_tab(self, url: str = None, title: str = "New Tab"):
         browser = BrowserTab(self.profile)
         browser.setUrl(QUrl(url or self.settings.homepage))
-        browser.urlChanged.connect(lambda new_url, b=browser: self.update_url(new_url, b))
-        browser.loadFinished.connect(lambda success, b=browser: self.on_load_finished(success, b))
+        browser.urlChanged.connect(
+            lambda new_url, b=browser: self.update_url(new_url, b)
+        )
+        browser.loadFinished.connect(
+            lambda success, b=browser: self.on_load_finished(success, b)
+        )
         browser.titleChanged.connect(lambda _, b=browser: self.update_title(b))
 
         index = self.tabs.addTab(browser, title)
@@ -93,15 +115,19 @@ class BrowserWindow(QMainWindow):
         if not raw:
             return
 
-        if " " in raw or ("." not in raw and "." not in raw):
-            search = self.settings.search_engine.format(raw)
-            browser.setUrl(QUrl(search))
+        # Check if input is a search query
+        if " " in raw or "." not in raw:
+            encoded_query = QUrl.toPercentEncoding(raw).data().decode("utf-8")
+            
+            # Force full Google search URL
+            search_str = f"https://www.google.com/search?q={encoded_query}"
+            
+            # MUST use QUrl.fromUserInput so Qt parses the '?' query string correctly
+            browser.setUrl(QUrl.fromUserInput(search_str))
             return
 
-        if not raw.startswith(("http://", "https://")):
-            raw = "https://" + raw
-
-        browser.setUrl(QUrl(raw))
+        # Direct web address navigation
+        browser.setUrl(QUrl.fromUserInput(raw))
 
     def go_back(self):
         browser = self.current_browser()
@@ -131,7 +157,9 @@ class BrowserWindow(QMainWindow):
     def update_url(self, url: QUrl, browser: QWebEngineView):
         index = self.tabs.indexOf(browser)
         if index >= 0:
-            self.tabs.setTabText(index, browser.page().title() or url.toString())
+            self.tabs.setTabText(
+                index, browser.page().title() or url.toString()
+            )
 
         if browser == self.current_browser():
             self.url_bar.setText(url.toString())
@@ -147,10 +175,11 @@ class BrowserWindow(QMainWindow):
             return
 
         self.toolbar.refresh()
-        self.history_manager.add_entry(browser.url().toString(), browser.page().title())
 
-        if not success:
-            QMessageBox.warning(self, "Load failed", "The page did not finish loading.")
+        if success:
+            url_str = browser.url().toString()
+            if url_str and url_str != "about:blank":
+                self.history_manager.add_entry(url_str, browser.page().title())
 
     def change_tab(self, index: int):
         browser = self.current_browser()
@@ -167,7 +196,9 @@ class BrowserWindow(QMainWindow):
 
         browser = self.tabs.widget(index)
         if browser:
-            self.closed_tabs.append((browser.url().toString(), browser.page().title() or "New Tab"))
+            self.closed_tabs.append(
+                (browser.url().toString(), browser.page().title() or "New Tab")
+            )
         self.tabs.removeTab(index)
         self.toolbar.refresh()
 
@@ -186,7 +217,9 @@ class BrowserWindow(QMainWindow):
         url = browser.url().toString()
         title = browser.page().title() or url
         self.bookmark_manager.add_bookmark(title, url)
-        QMessageBox.information(self, "Bookmark added", f"{title} was added to bookmarks.")
+        QMessageBox.information(
+            self, "Bookmark added", f"{title} was added to bookmarks."
+        )
 
     def open_bookmarks_menu(self):
         self.bookmarks_window.update_bookmarks()
@@ -199,21 +232,26 @@ class BrowserWindow(QMainWindow):
         self.history_window.show()
         self.history_window.raise_()
         self.history_window.activateWindow()
+
     def open_privacy(self):
-
         self.privacy_window.show()
-
         self.privacy_window.raise_()
-
         self.privacy_window.activateWindow()
+
     def toggleFullScreen(self):
         if self.windowState() & Qt.WindowState.WindowFullScreen:
-            self.setWindowState(self.windowState() & ~Qt.WindowState.WindowFullScreen)
+            self.setWindowState(
+                self.windowState() & ~Qt.WindowState.WindowFullScreen
+            )
         else:
-            self.setWindowState(self.windowState() | Qt.WindowState.WindowFullScreen)
+            self.setWindowState(
+                self.windowState() | Qt.WindowState.WindowFullScreen
+            )
 
     def open_downloads(self):
         self.downloads_manager.show_window()
 
     def open_settings(self):
-        QMessageBox.information(self, "Settings", "Settings will be available in the next update.")
+        QMessageBox.information(
+            self, "Settings", "Settings will be available in the next update."
+        )

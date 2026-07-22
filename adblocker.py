@@ -1,6 +1,6 @@
 import os
 import urllib.request
-from PyQt6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
+from PyQt6.QtWebEngineCore import QWebEngineUrlRequestInterceptor,QWebEngineUrlRequestInfo, QWebEngineUrlRequestInterceptor
 
 
 OISD_URL = "https://small.oisd.nl"

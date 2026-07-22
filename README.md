@@ -3,6 +3,7 @@
 - open source
 - no bloat
 - no data collection 
+- full anti tracking protection
 
 ## Structure
 - `main.py` — application entrypoint

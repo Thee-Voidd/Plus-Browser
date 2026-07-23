@@ -3,6 +3,9 @@
 - open source
 - no bloat
 - no data collection 
+## Note 
+
+Google services doesn't work because they banned embedded web engines.
 
 ## Structure
 - `main.py` — application entrypoint
